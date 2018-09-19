@@ -32,13 +32,17 @@ type alias Model =
     , l2 : Float
     , r1 : Float
     , r2 : Float
+    , omega1 : Float
+    , omega2 : Float
+    , alpha : Float
+    , beta : Float
     , t : Float
     }
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( Model (Time.millisToPosix 0) 2.5 2.5 1.0 1.0 0.0
+    ( Model (Time.millisToPosix 0) 2.5 2.5 1.0 1.0 1.0 2.01 0.0 0.0 0.0
     , Cmd.none
     )
 
@@ -57,13 +61,19 @@ type Parameter
     | L2 String
     | R1 String
     | R2 String
+    | Omega1 String
+    | Omega2 String
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Tick time ->
-            ( { model | currentTime = time, t = model.t + 0.001 * tickrate }
+            let
+                next =
+                    step 1 model
+            in
+            ( { next | currentTime = time }
             , Cmd.none
             )
 
@@ -86,6 +96,26 @@ updateParameter param model =
         R2 r ->
             { model | r2 = String.toFloat r |> Maybe.withDefault 1.0 }
 
+        Omega1 r ->
+            { model | omega1 = String.toFloat r |> Maybe.withDefault 1.0 }
+
+        Omega2 r ->
+            { model | omega2 = String.toFloat r |> Maybe.withDefault 1.0 }
+
+
+shift : Float -> Model -> Model
+shift secondsPassed model =
+    { model | t = model.t + secondsPassed, alpha = model.alpha + model.omega1 * secondsPassed, beta = model.beta + model.omega2 * secondsPassed }
+
+
+step : Int -> Model -> Model
+step i =
+    let
+        secondsPassed =
+            0.001 * tickrate * toFloat i
+    in
+    shift secondsPassed
+
 
 
 -- SUBSCRIPTIONS
@@ -94,11 +124,6 @@ updateParameter param model =
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Time.every tickrate Tick
-
-
-tickrate : Float
-tickrate =
-    30
 
 
 
@@ -114,8 +139,10 @@ view model =
     div []
         [ div [] [ viewSlider L1 .l1 l1min l1max model, text "L1" ]
         , div [] [ viewSlider L2 .l2 l2min l2max model, text "L2" ]
-        , div [] [ viewSlider R1 .r1 r1min r1max model, text "R1" ]
-        , div [] [ viewSlider R2 .r2 r2min r2max model, text "R2" ]
+        , div [] [ viewSlider R1 .r1 (\_ -> 0.0) r1max model, text "R1" ]
+        , div [] [ viewSlider R2 .r2 (\_ -> 0.0) r2max model, text "R2" ]
+        , div [] [ viewSlider Omega1 .omega1 (\_ -> 0.0) (\_ -> omegaMax) model, text "Omega1" ]
+        , div [] [ viewSlider Omega2 .omega2 (\_ -> 0.0) (\_ -> omegaMax) model, text "Omega2" ]
         , text
             (Debug.toString model)
         , Plot.viewSeriesCustom plotSettings
@@ -141,7 +168,7 @@ viewSlider param extract minval maxval model =
             , Att.min <| String.fromFloat <| minval model
             , Att.max <| String.fromFloat <| maxval model
             , Att.value <| String.fromFloat <| extract model
-            , Att.step "0.01"
+            , Att.step "0.0001"
             , onInput <| Update << param
             ]
             []
@@ -151,7 +178,7 @@ viewSlider param extract minval maxval model =
 
 l1min : Model -> Float
 l1min m =
-    max (circleDistance + m.r1 + m.r2 - m.l2) (m.l2 + m.r1 + m.r2 - circleDistance)
+    abs (m.l2 - circleDistance) + (m.r1 + m.r2)
 
 
 l1max : Model -> Float
@@ -161,7 +188,7 @@ l1max m =
 
 l2min : Model -> Float
 l2min m =
-    max (circleDistance + m.r1 + m.r2 - m.l1) (m.l1 + m.r1 + m.r2 - circleDistance)
+    abs (m.l1 - circleDistance) + (m.r1 + m.r2)
 
 
 l2max : Model -> Float
@@ -169,52 +196,14 @@ l2max m =
     m.l1 + circleDistance - m.r1 - m.r2
 
 
-r1min : Model -> Float
-r1min m =
-    case List.maximum <| r1Constraints m of
-        Just f ->
-            if f > 0 then
-                0.0
-
-            else
-                -f
-
-        Nothing ->
-            0.0
-
-
 r1max : Model -> Float
 r1max m =
-    case List.minimum <| r1Constraints m of
-        Just f ->
-            f
-
-        Nothing ->
-            0.0
-
-
-r2min : Model -> Float
-r2min m =
-    case List.maximum <| r2Constraints m of
-        Just f ->
-            if f > 0 then
-                0.0
-
-            else
-                -f
-
-        Nothing ->
-            0.0
+    min (m.l1 - m.r2 - abs (circleDistance - m.l2)) (circleDistance + m.l2 - m.l1 - m.r2)
 
 
 r2max : Model -> Float
 r2max m =
-    case List.minimum <| r2Constraints m of
-        Just f ->
-            f
-
-        Nothing ->
-            0.0
+    min (m.l1 - m.r1 - abs (circleDistance - m.l2)) (circleDistance + m.l2 - m.l1 - m.r1)
 
 
 r1Constraints : Model -> List Float
@@ -247,9 +236,9 @@ timeSeriesPlot maxTime generator model =
             List.map (\i -> maxTime * toFloat i / toFloat numPoints) (List.range 0 numPoints)
 
         models =
-            List.map (\t_ -> { model | t = model.t + t_ }) timesteps
+            List.map shift timesteps
     in
-    List.map generator models
+    List.map generator (List.map (\f -> f model) models)
 
 
 missajouPointData : Model -> List (DataPoint msg)
@@ -284,23 +273,34 @@ missajouCurveData model =
 
 
 leftCircleCurveData : Model -> List (DataPoint msg)
-leftCircleCurveData =
+leftCircleCurveData model =
     let
         maxTime =
-            2.0 * pi / omega1
+            2.0 * pi / model.omega1
     in
     timeSeriesPlot maxTime
         (\m -> Plot.clear (p1 m) (q1 m))
+        model
 
 
 rightCircleCurveData : Model -> List (DataPoint msg)
-rightCircleCurveData =
+rightCircleCurveData model =
     let
         maxTime =
-            2 * pi / omega2
+            2 * pi / model.omega2
     in
     timeSeriesPlot maxTime
         (\m -> Plot.clear (p2 m) (q2 m))
+        model
+
+
+
+-- CONSTANTS
+
+
+omegaMax : Float
+omegaMax =
+    5.0
 
 
 numPoints : Int
@@ -313,57 +313,38 @@ previewTime =
     20.0
 
 
-
--- CONSTANTS
-
-
-omega1 : Float
-omega1 =
-    1.0
-
-
-omega2 : Float
-omega2 =
-    2.01
-
-
 circleDistance : Float
 circleDistance =
     3.0
+
+
+tickrate : Float
+tickrate =
+    30
 
 
 
 -- DERIVED VALUES
 
 
-alpha : Float -> Float
-alpha t =
-    omega1 * t
-
-
-beta : Float -> Float
-beta t =
-    omega2 * t
-
-
 p1 : Model -> Float
 p1 m =
-    m.r1 * sin (alpha m.t)
+    m.r1 * sin m.alpha
 
 
 p2 : Model -> Float
 p2 m =
-    circleDistance + m.r2 * sin (beta m.t)
+    circleDistance + m.r2 * sin m.beta
 
 
 q1 : Model -> Float
 q1 m =
-    m.r1 * cos (alpha m.t)
+    m.r1 * cos m.alpha
 
 
 q2 : Model -> Float
 q2 m =
-    m.r2 * cos (beta m.t)
+    m.r2 * cos m.beta
 
 
 square : Float -> Float
