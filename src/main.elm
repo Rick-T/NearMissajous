@@ -146,8 +146,6 @@ view model =
         , viewSliderWithLabel Omega1 model
         , viewSliderWithLabel Omega2 model
         , viewSliderWithLabel Distance model
-        , text
-            (Debug.toString model)
         , viewPlot model
         ]
 
