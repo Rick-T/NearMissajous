@@ -1,0 +1,14 @@
+.plot {
+    margin: auto;
+    width: 70%;
+    height: 70%;
+    padding: 10px;
+}
+
+.slider-with-label {
+    border: 1px solid darkorchid;
+}
+
+.range {
+    width: 66%;
+}

@@ -2,10 +2,11 @@ module Main exposing (Model, Msg(..), init, main, subscriptions, update, view)
 
 import Browser
 import Html exposing (..)
-import Html.Attributes as Att exposing (class, style)
+import Html.Attributes as Att exposing (class)
 import Html.Events exposing (onInput)
 import Plot exposing (..)
 import Round exposing (round)
+import Svg.Attributes exposing (stroke)
 import Task
 import Time
 
@@ -138,15 +139,19 @@ subscriptions model =
 
 view : Model -> Html Msg
 view model =
-    div []
-        [ viewSliderWithLabel L1 model
-        , viewSliderWithLabel L2 model
-        , viewSliderWithLabel R1 model
-        , viewSliderWithLabel R2 model
-        , viewSliderWithLabel Omega1 model
-        , viewSliderWithLabel Omega2 model
-        , viewSliderWithLabel Distance model
-        , viewPlot model
+    div [ class "container-fluid" ]
+        [ div [ class "row" ]
+            [ viewSliderWithLabel L1 model
+            , viewSliderWithLabel L2 model
+            , viewSliderWithLabel R1 model
+            , viewSliderWithLabel R2 model
+            , viewSliderWithLabel Omega1 model
+            , viewSliderWithLabel Omega2 model
+            , viewSliderWithLabel Distance model
+            ]
+        , div [ class "row" ]
+            [ viewPlot model
+            ]
         ]
 
 
@@ -156,60 +161,64 @@ viewPlot model =
         default =
             defaultSeriesPlotCustomizations
 
-        lowest =
-            \i -> min (default.toDomainLowest i) (default.toRangeLowest i)
-
-        highest =
-            \i -> max (default.toDomainHighest i) (default.toRangeHighest i)
-
-        lowerBound =
-            \i -> min -5 (lowest i)
-
-        upperBound =
-            \i -> max 5 (highest i)
+        maxDist =
+            0.5 * (model.r1 + model.l1 + model.r2 + model.l2)
 
         plotSettings =
-            { default | width = 600, height = 600, toDomainLowest = lowerBound, toRangeLowest = lowerBound, toDomainHighest = upperBound, toRangeHighest = upperBound }
+            { default | width = 600, height = 400, toDomainLowest = \i -> min -model.r1 -model.r2, toRangeLowest = \i -> min 5 -maxDist, toDomainHighest = \i -> 1.4 * max 5 maxDist, toRangeHighest = \i -> max 5 maxDist }
     in
     div [ class "plot" ]
         [ Plot.viewSeriesCustom plotSettings
-            [ Plot.dots missajouPointData
-            , Plot.dots leftCirclePointData
-            , Plot.dots rightCirclePointData
-            , Plot.line (\m -> missajouPointData m ++ rightCirclePointData m)
-            , Plot.line (\m -> missajouPointData m ++ leftCirclePointData m)
-            , Plot.line rightCircleCurveData
-            , Plot.line leftCircleCurveData
-            , Plot.line missajouCurveData
+            [ Plot.line (\m -> missajouPointData "lightblue" m ++ rightCirclePointData "black" m) |> colorSeries "lightgreen"
+            , Plot.line (\m -> missajouPointData "lightblue" m ++ leftCirclePointData "black" m) |> colorSeries "lightgreen"
+            , Plot.line rightCircleCurveData |> colorSeries "black"
+            , Plot.line leftCircleCurveData |> colorSeries "black"
+            , Plot.line missajouCurveData |> colorSeries "pink"
             ]
             model
         ]
 
 
+colorSeries : String -> Series data msg -> Series data msg
+colorSeries color series =
+    case
+        series.interpolation
+    of
+        None ->
+            series
+
+        Linear fill atts ->
+            { series | interpolation = Linear fill [ stroke color ] }
+
+        Monotone fill atts ->
+            { series | interpolation = Monotone fill [ stroke color ] }
+
+
 viewSliderWithLabel : Parameter -> Model -> Html Msg
 viewSliderWithLabel p m =
-    div [ class "slider-with-label" ] [ viewLabel p m, viewSlider p m ]
+    div [ class "slider-with-label", class "col", class "form-group" ] [ viewLabel p m, viewSlider p m ]
 
 
 viewLabel : Parameter -> Model -> Html Msg
 viewLabel param model =
-    label [ class "label" ] [ text <| nameOf param ++ ": " ++ (model.circleDistance |> round 2) ]
+    label [ class "label", class "form-label", class "text-center" ] [ text <| nameOf param ++ ": " ++ (extract param model |> round 2) ]
 
 
 viewSlider : Parameter -> Model -> Html Msg
 viewSlider param model =
-    div [ class "slider" ]
-        [ minOf param model |> round 2 |> text
+    div [ class "form-inline", class "row" ]
+        [ label [ class "form-label", class "form-inline" ] [ minOf param model |> round 2 |> text ]
         , input
             [ Att.type_ "range"
             , Att.min <| String.fromFloat <| minOf param model
             , Att.max <| String.fromFloat <| maxOf param model
             , Att.value <| String.fromFloat <| extract param model
             , Att.step "0.0001"
+            , class "range"
             , onInput <| Update param
             ]
             []
-        , maxOf param model |> round 2 |> text
+        , label [] [ maxOf param model |> round 2 |> text ]
         ]
 
 
@@ -358,13 +367,13 @@ posixToSeconds posix =
     0.001 * (Time.posixToMillis posix |> toFloat)
 
 
-timePointPlot : (Model -> DataPoint msg) -> Model -> List (DataPoint msg)
-timePointPlot generator model =
-    [ generator model ]
+timePointPlot : String -> Float -> Float -> List (DataPoint msg)
+timePointPlot color x_ y_ =
+    [ Plot.dot (Plot.viewCircle 5.0 color) x_ y_ ]
 
 
-timeSeriesPlot : Float -> (Model -> DataPoint msg) -> Model -> List (DataPoint msg)
-timeSeriesPlot maxTime generator model =
+timeSeriesPlot : Float -> ( Model -> Float, Model -> Float ) -> Model -> List (DataPoint msg)
+timeSeriesPlot maxTime ( x_, y_ ) model =
     let
         timesteps =
             List.map (\i -> maxTime * toFloat i / toFloat numPoints) (List.range 0 numPoints)
@@ -372,26 +381,22 @@ timeSeriesPlot maxTime generator model =
         models =
             List.map shift timesteps
     in
-    List.map generator (List.map (\f -> f model) models)
+    List.map (\m -> Plot.clear (x_ m) (y_ m)) (List.map (\f -> f model) models)
 
 
-missajouPointData : Model -> List (DataPoint msg)
-missajouPointData model =
-    timePointPlot
-        (\t ->
-            Plot.circle (x model) (y model)
-        )
-        model
+missajouPointData : String -> Model -> List (DataPoint msg)
+missajouPointData color model =
+    timePointPlot color (x model) (y model)
 
 
-leftCirclePointData : Model -> List (DataPoint msg)
-leftCirclePointData =
-    timePointPlot (\m -> Plot.circle (p1 m) (q1 m))
+leftCirclePointData : String -> Model -> List (DataPoint msg)
+leftCirclePointData color model =
+    timePointPlot color (p1 model) (q1 model)
 
 
-rightCirclePointData : Model -> List (DataPoint msg)
-rightCirclePointData =
-    timePointPlot (\m -> Plot.circle (p2 m) (q2 m))
+rightCirclePointData : String -> Model -> List (DataPoint msg)
+rightCirclePointData color model =
+    timePointPlot color (p2 model) (q2 model)
 
 
 missajouCurveData : Model -> List (DataPoint msg)
@@ -403,7 +408,7 @@ missajouCurveData model =
         offsetModel =
             { model | t = model.t + offset }
     in
-    timeSeriesPlot previewTime (\m -> Plot.clear (x m) (y m)) offsetModel
+    timeSeriesPlot previewTime ( x, y ) offsetModel
 
 
 leftCircleCurveData : Model -> List (DataPoint msg)
@@ -412,9 +417,7 @@ leftCircleCurveData model =
         maxTime =
             2.0 * pi / model.omega1
     in
-    timeSeriesPlot maxTime
-        (\m -> Plot.clear (p1 m) (q1 m))
-        model
+    timeSeriesPlot maxTime ( p1, q1 ) model
 
 
 rightCircleCurveData : Model -> List (DataPoint msg)
@@ -423,9 +426,7 @@ rightCircleCurveData model =
         maxTime =
             2 * pi / model.omega2
     in
-    timeSeriesPlot maxTime
-        (\m -> Plot.clear (p2 m) (q2 m))
-        model
+    timeSeriesPlot maxTime ( p2, q2 ) model
 
 
 
@@ -458,12 +459,12 @@ tickrate =
 
 p1 : Model -> Float
 p1 m =
-    m.r1 * sin m.alpha
+    m.r1 * sin m.alpha - 0.5 * m.circleDistance
 
 
 p2 : Model -> Float
 p2 m =
-    m.circleDistance + m.r2 * sin m.beta
+    0.5 * m.circleDistance + m.r2 * sin m.beta
 
 
 q1 : Model -> Float
