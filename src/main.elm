@@ -169,8 +169,8 @@ viewPlot model =
     in
     div [ class "plot" ]
         [ Plot.viewSeriesCustom plotSettings
-            [ Plot.line (\m -> missajouPointData "lightblue" m ++ rightCirclePointData "black" m) |> colorSeries "lightgreen"
-            , Plot.line (\m -> missajouPointData "lightblue" m ++ leftCirclePointData "black" m) |> colorSeries "lightgreen"
+            [ Plot.line (\m -> missajouPointData "lightblue" m ++ rightCirclePointData "black" m) |> colorSeries "green"
+            , Plot.line (\m -> missajouPointData "lightblue" m ++ leftCirclePointData "black" m) |> colorSeries "green"
             , Plot.line rightCircleCurveData |> colorSeries "black"
             , Plot.line leftCircleCurveData |> colorSeries "black"
             , Plot.line missajouCurveData |> colorSeries "pink"
