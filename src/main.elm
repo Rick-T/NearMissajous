@@ -165,7 +165,7 @@ viewPlot model =
             0.5 * (model.r1 + model.l1 + model.r2 + model.l2)
 
         plotSettings =
-            { default | width = 600, height = 400, toDomainLowest = \i -> min -model.r1 -model.r2, toRangeLowest = \i -> min 5 -maxDist, toDomainHighest = \i -> 1.4 * max 5 maxDist, toRangeHighest = \i -> max 5 maxDist }
+            { default | width = 600, height = 400, toDomainLowest = \i -> min -model.r1 -model.r2, toRangeLowest = \i -> min -5 -maxDist, toDomainHighest = \i -> 1.4 * max 5 maxDist, toRangeHighest = \i -> max 5 maxDist }
     in
     div [ class "plot" ]
         [ Plot.viewSeriesCustom plotSettings
