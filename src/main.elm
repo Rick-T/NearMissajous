@@ -2,9 +2,10 @@ module Main exposing (Model, Msg(..), init, main, subscriptions, update, view)
 
 import Browser
 import Html exposing (..)
-import Html.Attributes as Att exposing (style)
+import Html.Attributes as Att exposing (class, style)
 import Html.Events exposing (onInput)
 import Plot exposing (..)
+import Round exposing (round)
 import Task
 import Time
 
@@ -36,13 +37,14 @@ type alias Model =
     , omega2 : Float
     , alpha : Float
     , beta : Float
+    , circleDistance : Float
     , t : Float
     }
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( Model (Time.millisToPosix 0) 2.5 2.5 1.0 1.0 1.0 2.01 0.0 0.0 0.0
+    ( Model (Time.millisToPosix 0) 2.5 2.5 1.0 1.0 1.0 2.01 0.0 0.0 3.0 0.0
     , Cmd.none
     )
 
@@ -53,16 +55,17 @@ init _ =
 
 type Msg
     = Tick Time.Posix
-    | Update Parameter
+    | Update Parameter String
 
 
 type Parameter
-    = L1 String
-    | L2 String
-    | R1 String
-    | R2 String
-    | Omega1 String
-    | Omega2 String
+    = L1
+    | L2
+    | R1
+    | R2
+    | Omega1
+    | Omega2
+    | Distance
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -77,30 +80,33 @@ update msg model =
             , Cmd.none
             )
 
-        Update p ->
-            ( updateParameter p model, Cmd.none )
+        Update p str ->
+            ( updateParameter p str model, Cmd.none )
 
 
-updateParameter : Parameter -> Model -> Model
-updateParameter param model =
+updateParameter : Parameter -> String -> Model -> Model
+updateParameter param str model =
     case param of
-        L1 l ->
-            { model | l1 = String.toFloat l |> Maybe.withDefault 2.5 }
+        L1 ->
+            { model | l1 = String.toFloat str |> Maybe.withDefault model.l1 }
 
-        L2 l ->
-            { model | l2 = String.toFloat l |> Maybe.withDefault 2.5 }
+        L2 ->
+            { model | l2 = String.toFloat str |> Maybe.withDefault model.l2 }
 
-        R1 r ->
-            { model | r1 = String.toFloat r |> Maybe.withDefault 1.0 }
+        R1 ->
+            { model | r1 = String.toFloat str |> Maybe.withDefault model.r1 }
 
-        R2 r ->
-            { model | r2 = String.toFloat r |> Maybe.withDefault 1.0 }
+        R2 ->
+            { model | r2 = String.toFloat str |> Maybe.withDefault model.r2 }
 
-        Omega1 r ->
-            { model | omega1 = String.toFloat r |> Maybe.withDefault 1.0 }
+        Omega1 ->
+            { model | omega1 = String.toFloat str |> Maybe.withDefault model.omega1 }
 
-        Omega2 r ->
-            { model | omega2 = String.toFloat r |> Maybe.withDefault 1.0 }
+        Omega2 ->
+            { model | omega2 = String.toFloat str |> Maybe.withDefault model.omega2 }
+
+        Distance ->
+            { model | circleDistance = String.toFloat str |> Maybe.withDefault model.circleDistance }
 
 
 shift : Float -> Model -> Model
@@ -132,20 +138,43 @@ subscriptions model =
 
 view : Model -> Html Msg
 view model =
-    let
-        plotSettings =
-            { defaultSeriesPlotCustomizations | width = 800, height = 600, toDomainLowest = min -5, toRangeLowest = min -5, toDomainHighest = max 5, toRangeHighest = max 5 }
-    in
     div []
-        [ div [] [ viewSlider L1 .l1 l1min l1max model, text "L1" ]
-        , div [] [ viewSlider L2 .l2 l2min l2max model, text "L2" ]
-        , div [] [ viewSlider R1 .r1 (\_ -> 0.0) r1max model, text "R1" ]
-        , div [] [ viewSlider R2 .r2 (\_ -> 0.0) r2max model, text "R2" ]
-        , div [] [ viewSlider Omega1 .omega1 (\_ -> 0.0) (\_ -> omegaMax) model, text "Omega1" ]
-        , div [] [ viewSlider Omega2 .omega2 (\_ -> 0.0) (\_ -> omegaMax) model, text "Omega2" ]
+        [ viewSliderWithLabel L1 model
+        , viewSliderWithLabel L2 model
+        , viewSliderWithLabel R1 model
+        , viewSliderWithLabel R2 model
+        , viewSliderWithLabel Omega1 model
+        , viewSliderWithLabel Omega2 model
+        , viewSliderWithLabel Distance model
         , text
             (Debug.toString model)
-        , Plot.viewSeriesCustom plotSettings
+        , viewPlot model
+        ]
+
+
+viewPlot : Model -> Html Msg
+viewPlot model =
+    let
+        default =
+            defaultSeriesPlotCustomizations
+
+        lowest =
+            \i -> min (default.toDomainLowest i) (default.toRangeLowest i)
+
+        highest =
+            \i -> max (default.toDomainHighest i) (default.toRangeHighest i)
+
+        lowerBound =
+            \i -> min -5 (lowest i)
+
+        upperBound =
+            \i -> max 5 (highest i)
+
+        plotSettings =
+            { default | width = 600, height = 600, toDomainLowest = lowerBound, toRangeLowest = lowerBound, toDomainHighest = upperBound, toRangeHighest = upperBound }
+    in
+    div [ class "plot" ]
+        [ Plot.viewSeriesCustom plotSettings
             [ Plot.dots missajouPointData
             , Plot.dots leftCirclePointData
             , Plot.dots rightCirclePointData
@@ -159,64 +188,171 @@ view model =
         ]
 
 
-viewSlider : (String -> Parameter) -> (Model -> Float) -> (Model -> Float) -> (Model -> Float) -> Model -> Html Msg
-viewSlider param extract minval maxval model =
-    div []
-        [ text <| String.fromFloat <| minval model
+viewSliderWithLabel : Parameter -> Model -> Html Msg
+viewSliderWithLabel p m =
+    div [ class "slider-with-label" ] [ viewLabel p m, viewSlider p m ]
+
+
+viewLabel : Parameter -> Model -> Html Msg
+viewLabel param model =
+    label [ class "label" ] [ text <| nameOf param ++ ": " ++ (model.circleDistance |> round 2) ]
+
+
+viewSlider : Parameter -> Model -> Html Msg
+viewSlider param model =
+    div [ class "slider" ]
+        [ minOf param model |> round 2 |> text
         , input
             [ Att.type_ "range"
-            , Att.min <| String.fromFloat <| minval model
-            , Att.max <| String.fromFloat <| maxval model
-            , Att.value <| String.fromFloat <| extract model
+            , Att.min <| String.fromFloat <| minOf param model
+            , Att.max <| String.fromFloat <| maxOf param model
+            , Att.value <| String.fromFloat <| extract param model
             , Att.step "0.0001"
-            , onInput <| Update << param
+            , onInput <| Update param
             ]
             []
-        , text <| String.fromFloat <| maxval model
+        , maxOf param model |> round 2 |> text
         ]
+
+
+nameOf : Parameter -> String
+nameOf p =
+    case p of
+        L1 ->
+            "L1"
+
+        L2 ->
+            "L2"
+
+        R1 ->
+            "R1"
+
+        R2 ->
+            "R2"
+
+        Omega1 ->
+            "Omega1"
+
+        Omega2 ->
+            "Omega2"
+
+        Distance ->
+            "Distance"
+
+
+extract : Parameter -> (Model -> Float)
+extract param =
+    case param of
+        L1 ->
+            .l1
+
+        L2 ->
+            .l2
+
+        R1 ->
+            .r1
+
+        R2 ->
+            .r2
+
+        Omega1 ->
+            .omega1
+
+        Omega2 ->
+            .omega2
+
+        Distance ->
+            .circleDistance
+
+
+maxOf : Parameter -> (Model -> Float)
+maxOf param =
+    case param of
+        L1 ->
+            l1max
+
+        L2 ->
+            l2max
+
+        R1 ->
+            r1max
+
+        R2 ->
+            r2max
+
+        Omega1 ->
+            \i -> omegaMax
+
+        Omega2 ->
+            \i -> omegaMax
+
+        Distance ->
+            dmax
+
+
+minOf : Parameter -> (Model -> Float)
+minOf param =
+    case param of
+        L1 ->
+            l1min
+
+        L2 ->
+            l2min
+
+        R1 ->
+            \i -> 0
+
+        R2 ->
+            \i -> 0
+
+        Omega1 ->
+            \i -> 0
+
+        Omega2 ->
+            \i -> 0
+
+        Distance ->
+            dmin
 
 
 l1min : Model -> Float
 l1min m =
-    abs (m.l2 - circleDistance) + (m.r1 + m.r2)
+    abs (m.l2 - m.circleDistance) + (m.r1 + m.r2)
 
 
 l1max : Model -> Float
 l1max m =
-    m.l2 + circleDistance - m.r1 - m.r2
+    m.l2 + m.circleDistance - m.r1 - m.r2
 
 
 l2min : Model -> Float
 l2min m =
-    abs (m.l1 - circleDistance) + (m.r1 + m.r2)
+    abs (m.l1 - m.circleDistance) + (m.r1 + m.r2)
 
 
 l2max : Model -> Float
 l2max m =
-    m.l1 + circleDistance - m.r1 - m.r2
+    m.l1 + m.circleDistance - m.r1 - m.r2
 
 
 r1max : Model -> Float
 r1max m =
-    min (m.l1 - m.r2 - abs (circleDistance - m.l2)) (circleDistance + m.l2 - m.l1 - m.r2)
+    min (m.l1 - m.r2 - abs (m.circleDistance - m.l2)) (m.circleDistance + m.l2 - m.l1 - m.r2)
 
 
 r2max : Model -> Float
 r2max m =
-    min (m.l1 - m.r1 - abs (circleDistance - m.l2)) (circleDistance + m.l2 - m.l1 - m.r1)
+    min (m.l1 - m.r1 - abs (m.circleDistance - m.l2)) (m.circleDistance + m.l2 - m.l1 - m.r1)
 
 
-r1Constraints : Model -> List Float
-r1Constraints m =
-    List.filter (\i -> i >= 0.0)
-        [ m.l1 + m.l2 - circleDistance - m.r2
-        ]
+dmin : Model -> Float
+dmin m =
+    abs (m.l1 - m.l2) + m.r1 + m.r2
 
 
-r2Constraints : Model -> List Float
-r2Constraints m =
-    List.filter (\i -> i >= 0.0)
-        [ m.l2 + m.l1 - circleDistance - m.r1 ]
+dmax : Model -> Float
+dmax m =
+    m.l1 + m.l2 - m.r1 - m.r2
 
 
 posixToSeconds : Time.Posix -> Float
@@ -313,11 +449,6 @@ previewTime =
     20.0
 
 
-circleDistance : Float
-circleDistance =
-    3.0
-
-
 tickrate : Float
 tickrate =
     30
@@ -334,7 +465,7 @@ p1 m =
 
 p2 : Model -> Float
 p2 m =
-    circleDistance + m.r2 * sin m.beta
+    m.circleDistance + m.r2 * sin m.beta
 
 
 q1 : Model -> Float
